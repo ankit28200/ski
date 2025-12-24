@@ -294,5 +294,5 @@ export async function loadCatalog(params: {
     return products.map((p) => ({ ...p, brand: p.brand ?? params.brandName }))
   }
 
-  return publicCatalog
+  return []
 }

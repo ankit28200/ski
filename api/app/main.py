@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import os
+import socket
 from io import BytesIO
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
@@ -28,6 +31,234 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/catalog/shopify")
+async def shopify_catalog(
+    store: str = Query(...),
+    limit: int = Query(default=250, ge=1, le=250),
+    currency: str = Query(default="USD"),
+    brand: str | None = Query(default=None),
+):
+    parsed = urlparse(store)
+    host = (parsed.hostname or "").strip()
+    if parsed.scheme != "https" or not host:
+        raise HTTPException(status_code=400, detail="Invalid store URL")
+
+    if host.lower() in {"localhost", "127.0.0.1", "::1"}:
+        raise HTTPException(status_code=400, detail="Invalid store URL")
+
+    try:
+        ipaddress.ip_address(host)
+        raise HTTPException(status_code=400, detail="Invalid store URL")
+    except ValueError:
+        pass
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+        for info in infos:
+            sockaddr = info[4]
+            if not sockaddr:
+                continue
+            ip_str = sockaddr[0]
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                raise HTTPException(status_code=400, detail="Invalid store URL")
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Invalid store URL")
+
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    feed_url = f"{base}/products.json?limit={limit}"
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        res = await client.get(feed_url, headers={"User-Agent": "SkinSense/0.1"})
+
+    if res.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Catalog fetch failed ({res.status_code})")
+
+    data = res.json()
+    raw = data.get("products") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        return []
+
+    cur = (currency or "").strip().upper()
+    if len(cur) != 3 or not cur.isalpha():
+        cur = "USD"
+
+    brand_clean = brand.strip() if isinstance(brand, str) and brand.strip() else None
+
+    out: list[dict[str, Any]] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+
+        title = p.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+
+        handle = p.get("handle")
+        if isinstance(handle, str) and handle.strip():
+            pid = handle.strip()
+            url = f"{base}/products/{pid}"
+        else:
+            pid_raw = p.get("id")
+            pid = str(pid_raw).strip() if pid_raw is not None else ""
+            if not pid:
+                continue
+            url = f"{base}/products/{pid}"
+
+        product_type = p.get("product_type")
+        vendor = p.get("vendor")
+        category = (
+            product_type.strip()
+            if isinstance(product_type, str) and product_type.strip()
+            else vendor.strip()
+            if isinstance(vendor, str) and vendor.strip()
+            else "Product"
+        )
+
+        variants = p.get("variants")
+        price: float | None = None
+        if isinstance(variants, list) and variants:
+            v0 = variants[0]
+            if isinstance(v0, dict):
+                pr = v0.get("price")
+                if isinstance(pr, (int, float)):
+                    price = float(pr)
+                elif isinstance(pr, str):
+                    try:
+                        price = float(pr)
+                    except Exception:
+                        price = None
+
+        if price is None:
+            continue
+
+        images = p.get("images")
+        image_url: str | None = None
+        if isinstance(images, list) and images:
+            im0 = images[0]
+            if isinstance(im0, dict):
+                src = im0.get("src")
+                if isinstance(src, str) and src.strip():
+                    image_url = src.strip()
+
+        tags_field = p.get("tags")
+        raw_tags: list[str] = []
+        if isinstance(tags_field, list):
+            raw_tags = [t.strip() for t in tags_field if isinstance(t, str) and t.strip()]
+        elif isinstance(tags_field, str):
+            raw_tags = [t.strip() for t in tags_field.split(",") if t.strip()]
+
+        def _norm_tag(t: str) -> str:
+            v = t.strip().lower()
+            if not v:
+                return ""
+            v = v.replace("&", " ")
+            v = v.replace("/", " ")
+            v = v.replace("-", " ")
+            v = " ".join(v.split())
+            v = v.replace(" ", "_")
+            return v
+
+        normalized_raw = {_norm_tag(t) for t in raw_tags}
+        normalized_raw.discard("")
+
+        blob = " ".join(
+            [
+                title.strip(),
+                category.strip(),
+                vendor.strip() if isinstance(vendor, str) else "",
+                product_type.strip() if isinstance(product_type, str) else "",
+                " ".join(raw_tags),
+            ]
+        ).lower()
+
+        def _has(needle: str) -> bool:
+            return needle in blob
+
+        derived_tags: set[str] = set()
+        derived_concerns: set[str] = set()
+
+        if _has("vitamin c") or _has("vitamin_c"):
+            derived_tags.update({"vitamin_c", "brightening", "antioxidants"})
+            derived_concerns.add("uneven_tone")
+
+        if _has("niacinamide"):
+            derived_tags.update({"niacinamide", "oil_control", "pores", "barrier"})
+            derived_concerns.update({"oiliness", "redness", "uneven_tone"})
+
+        if _has("hyaluronic"):
+            derived_tags.update({"hyaluronic_acid", "moisturizer", "barrier"})
+            derived_concerns.update({"dryness", "barrier"})
+
+        if _has("ceramide"):
+            derived_tags.update({"ceramides", "moisturizer", "barrier"})
+            derived_concerns.update({"dryness", "barrier"})
+
+        if _has("retinol") or _has("retinoid"):
+            derived_tags.update({"retinoid", "wrinkles", "texture"})
+            derived_concerns.update({"wrinkles", "texture"})
+
+        if _has("salicylic") or _has(" bha") or _has("bha "):
+            derived_tags.update({"bha", "oil_control", "pores", "texture"})
+            derived_concerns.update({"oiliness", "texture"})
+
+        if _has("glycolic") or _has("lactic") or _has(" aha") or _has("aha "):
+            derived_tags.update({"aha", "texture", "brightening"})
+            derived_concerns.update({"texture", "uneven_tone"})
+
+        if _has("azelaic"):
+            derived_tags.update({"azelaic_acid", "redness", "brightening"})
+            derived_concerns.update({"redness", "uneven_tone"})
+
+        if _has("peptide"):
+            derived_tags.add("peptides")
+            derived_concerns.add("wrinkles")
+
+        if _has("caffeine"):
+            derived_tags.update({"caffeine", "puffy_eyes"})
+            derived_concerns.add("puffy_eyes")
+
+        if _has("sunscreen") or _has("spf") or _has("sun stick"):
+            derived_tags.update({"sunscreen", "spf", "uv"})
+            derived_concerns.update({"wrinkles", "uneven_tone"})
+
+        if _has("face wash") or _has("cleanser"):
+            derived_tags.add("cleanser")
+
+        if _has("moistur") or _has("lotion") or _has("cream"):
+            derived_tags.add("moisturizer")
+
+        tags = sorted(derived_tags.union(normalized_raw))
+        concerns = sorted(derived_concerns)
+
+        out.append(
+            {
+                "id": pid,
+                "brand": brand_clean,
+                "name": title.strip(),
+                "category": category,
+                "price": price,
+                "currency": cur,
+                "url": url,
+                "imageUrl": image_url,
+                "tags": tags,
+                "concerns": concerns,
+            }
+        )
+
+    return out
 
 
 @app.post("/analyze")
@@ -233,6 +464,8 @@ async def chat(
         "Be careful and conservative: explain uncertainty and ask follow-up questions when needed.",
         "If the user mentions severe pain, bleeding, fast-changing lesions, infection, fever, eye involvement, or other urgent symptoms, advise urgent in-person medical care.",
         "Use the scan results below as context, but do not overclaim accuracy (lighting and camera affect results).",
+        "Do NOT invent products, brands, prices, or links.",
+        "If the user asks for product recommendations and no allowed catalog is provided, recommend ingredient categories instead of specific buyable products.",
     ]
 
     if user_name and user_name.strip():

@@ -308,9 +308,11 @@ function scoreProduct(
     }
   }
 
-  if (p.price <= 12) score += 1
-  else if (p.price <= 20) score += 0.5
-  else if (p.price >= 45) score -= 0.5
+  if (p.currency === 'USD') {
+    if (p.price <= 12) score += 1
+    else if (p.price <= 20) score += 0.5
+    else if (p.price >= 45) score -= 0.5
+  }
 
   return score
 }
@@ -346,8 +348,10 @@ export function buildRecommendations(params: {
     .slice(0, maxProducts)
     .map((x) => x.p)
 
+  const products = scored.length > 0 ? scored : catalog.slice(0, maxProducts)
+
   return {
     ingredients,
-    products: scored,
+    products,
   }
 }
