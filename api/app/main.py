@@ -261,6 +261,126 @@ async def shopify_catalog(
     return out
 
 
+@app.get("/catalog/shofy")
+async def shofy_catalog(
+    site: str = Query(...),
+    limit: int = Query(default=250, ge=1, le=250),
+    currency: str = Query(default="USD"),
+    brand: str | None = Query(default=None),
+):
+    parsed_site = urlparse(site)
+    host = (parsed_site.hostname or "").strip()
+    if parsed_site.scheme not in {"http", "https"} or not host:
+        raise HTTPException(status_code=400, detail="Invalid site URL")
+
+    storefront_base = f"{parsed_site.scheme}://{parsed_site.netloc}".rstrip("/")
+
+    api_url = "https://shofy-backend.vercel.app/api/product/all"
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        res = await client.get(api_url, headers={"User-Agent": "SkinSense/0.1"})
+
+    if res.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Catalog fetch failed ({res.status_code})")
+
+    data = res.json()
+    raw = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        return []
+
+    cur = (currency or "").strip().upper()
+    if len(cur) != 3 or not cur.isalpha():
+        cur = "USD"
+
+    brand_clean = brand.strip() if isinstance(brand, str) and brand.strip() else None
+
+    out: list[dict[str, Any]] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+
+        pid_raw = p.get("_id") or p.get("id") or p.get("sku")
+        pid = str(pid_raw).strip() if pid_raw is not None else ""
+        if not pid:
+            continue
+
+        title = p.get("title") or p.get("name")
+        if not isinstance(title, str) or not title.strip():
+            continue
+
+        category_field = p.get("category")
+        category = "Product"
+        if isinstance(category_field, dict):
+            name = category_field.get("name")
+            if isinstance(name, str) and name.strip():
+                category = name.strip()
+        elif isinstance(category_field, str) and category_field.strip():
+            category = category_field.strip()
+
+        price_raw = p.get("price")
+        price: float | None = None
+        if isinstance(price_raw, (int, float)):
+            price = float(price_raw)
+        elif isinstance(price_raw, str):
+            try:
+                price = float(price_raw)
+            except Exception:
+                price = None
+
+        if price is None:
+            continue
+
+        prod_brand: str | None = brand_clean
+        if not prod_brand:
+            b = p.get("brand")
+            if isinstance(b, dict):
+                bname = b.get("name")
+                if isinstance(bname, str) and bname.strip():
+                    prod_brand = bname.strip()
+            elif isinstance(b, str) and b.strip():
+                prod_brand = b.strip()
+
+        tags_field = p.get("tags")
+        tags: list[str] = []
+        if isinstance(tags_field, list):
+            tags = [t.strip() for t in tags_field if isinstance(t, str) and t.strip()]
+        elif isinstance(tags_field, str):
+            tags = [t.strip() for t in tags_field.split(",") if t.strip()]
+
+        url = f"{storefront_base}/product-details/{pid}"
+
+        image_url: str | None = None
+        img = p.get("img")
+        if isinstance(img, str) and img.strip():
+            img_clean = img.strip()
+            if img_clean.startswith("http://") or img_clean.startswith("https://"):
+                image_url = img_clean
+            elif img_clean.startswith("/"):
+                image_url = f"{storefront_base}{img_clean}"
+            else:
+                image_url = f"{storefront_base}/{img_clean}"
+
+        out.append(
+            {
+                "id": pid,
+                "brand": prod_brand,
+                "name": title.strip(),
+                "category": category,
+                "price": price,
+                "currency": cur,
+                "url": url,
+                "imageUrl": image_url,
+                "tags": tags,
+                "concerns": [],
+            }
+        )
+
+        if len(out) >= limit:
+            break
+
+    return out
+
+
 @app.post("/analyze")
 async def analyze(
     images: list[UploadFile] = File(...),
