@@ -26,7 +26,7 @@ import {
   YAxis,
 } from 'recharts'
 
-import { analyzeSkin, doctorChat } from '../lib/api'
+import { analyzeHair, analyzeSkin, doctorChat } from '../lib/api'
 import { readBrandConfig, hexToRgb } from '../lib/brand'
 import { loadCatalog } from '../lib/catalog'
 import type { CatalogProduct } from '../lib/catalog'
@@ -38,6 +38,8 @@ import { loadDoctorChat, saveDoctorChat, saveToHistory } from '../lib/storage'
 import type { AnalysisAnswers, AnalysisResponse, ChatTurn, StoredAnalysis } from '../lib/types'
 
 type Pose = 'front' | 'left' | 'right' | 'unknown'
+
+type ScanMode = 'skin' | 'hair'
 
 type CaptureItem = {
   id: string
@@ -327,6 +329,23 @@ export default function ScanPage() {
   const steps = ['Preparation', 'Scan', 'Questions', 'Results']
   const [step, setStep] = useState(0)
 
+  const mode = useMemo<ScanMode>(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('mode') === 'hair' ? 'hair' : 'skin'
+  }, [location.search])
+
+  function updateMode(next: ScanMode) {
+    if (next === mode) return
+    resetAll()
+    setConcerns([])
+    setGoals([])
+    setAutoCapture(false)
+    setAutoCountdown(null)
+    const params = new URLSearchParams(location.search)
+    params.set('mode', next)
+    navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true })
+  }
+
   const [captures, setCaptures] = useState<CaptureItem[]>([])
   const capturesRef = useRef<CaptureItem[]>([])
   const [cameraOn, setCameraOn] = useState(false)
@@ -412,7 +431,7 @@ export default function ScanPage() {
   }, [])
 
   useEffect(() => {
-    if (!result) {
+    if (!result || mode === 'hair') {
       setRecommendations(null)
       setRecommendationsLoading(false)
       return
@@ -435,7 +454,7 @@ export default function ScanPage() {
     return () => {
       active = false
     }
-  }, [brand.catalogUrl, brand.name, result])
+  }, [brand.catalogUrl, brand.name, mode, result])
 
   useEffect(() => {
     const video = videoRef.current
@@ -470,8 +489,9 @@ export default function ScanPage() {
   }, [cameraOn, step])
 
   useEffect(() => {
-    if (!cameraOn) {
+    if (!cameraOn || mode !== 'skin') {
       setMeshStatus('idle')
+      latestFaceRef.current = { found: false, coverage: 0, noseRatio: 0.5 }
       const canvas = overlayRef.current
       if (canvas) {
         const ctx = canvas.getContext('2d')
@@ -774,7 +794,7 @@ export default function ScanPage() {
         if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
       }
     }
-  }, [accentRgb, cameraOn, primaryRgb])
+  }, [accentRgb, cameraOn, mode, primaryRgb])
 
   useEffect(() => {
     return () => {
@@ -1061,8 +1081,15 @@ export default function ScanPage() {
   }, [chatTurns.length, chatSending])
 
   useEffect(() => {
-    if (step !== 3 || !result) {
+    if (mode === 'hair' || step !== 3 || !result) {
       setConcernMapStatus('idle')
+
+      const overlay = resultOverlayRef.current
+      if (overlay) {
+        const ctx = overlay.getContext('2d')
+        if (ctx) ctx.clearRect(0, 0, overlay.width, overlay.height)
+      }
+
       return
     }
 
@@ -1528,7 +1555,7 @@ export default function ScanPage() {
     return () => {
       active = false
     }
-  }, [accentRgb, overlayFocus, primaryRgb, result, resultImageTick, step, topConcernMetrics])
+  }, [accentRgb, mode, overlayFocus, primaryRgb, result, resultImageTick, step, topConcernMetrics])
 
   useEffect(() => {
     if (!cameraOn || step !== 1) {
@@ -1619,9 +1646,9 @@ export default function ScanPage() {
       const sharpness = Math.max(0, Math.min(1, variance / 800))
 
       const face = latestFaceRef.current
-      const faceCoverage = face.coverage
-      const pose =
-        face.found && faceCoverage > 0
+      const faceCoverage = mode === 'skin' ? face.coverage : 0
+      const pose: Pose =
+        mode === 'skin' && face.found && faceCoverage > 0
           ? face.noseRatio < 0.46
             ? 'left'
             : face.noseRatio > 0.54
@@ -1630,15 +1657,22 @@ export default function ScanPage() {
           : 'unknown'
 
       const brightCentered = Math.max(0, Math.min(1, 1 - Math.abs(brightness - 0.55) / 0.55))
-      const sizeScore = Math.min(1, faceCoverage / 0.2)
-      const score = face.found ? 0.45 * sharpness + 0.35 * brightCentered + 0.2 * sizeScore : 0
+      const sizeScore = mode === 'skin' ? Math.min(1, faceCoverage / 0.2) : 0
+      const score =
+        mode === 'skin'
+          ? face.found
+            ? 0.45 * sharpness + 0.35 * brightCentered + 0.2 * sizeScore
+            : 0
+          : 0.55 * sharpness + 0.45 * brightCentered
 
       const warnings: string[] = []
       if (brightness < 0.25) warnings.push('Lighting is low — move to brighter, even light.')
       if (brightness > 0.88) warnings.push('Lighting is very strong — avoid overexposure.')
       if (sharpness < 0.25) warnings.push('Hold still — image looks soft/blurry.')
-      if (!face.found) warnings.push('No face detected — keep full face in frame.')
-      if (face.found && faceCoverage < 0.08) warnings.push('Move closer — face is too small in frame.')
+      if (mode === 'skin') {
+        if (!face.found) warnings.push('No face detected — keep full face in frame.')
+        if (face.found && faceCoverage < 0.08) warnings.push('Move closer — face is too small in frame.')
+      }
 
       setScanQuality({ score, brightness, sharpness, faceCoverage, pose, warnings })
     }, 450)
@@ -1647,7 +1681,7 @@ export default function ScanPage() {
       active = false
       window.clearInterval(interval)
     }
-  }, [cameraOn, step])
+  }, [cameraOn, mode, step])
 
   useEffect(() => {
     if (!autoCapture || !cameraOn || step !== 1) {
@@ -1730,26 +1764,37 @@ export default function ScanPage() {
     setChatError(null)
     setChatInput('')
     setChatIncludePhoto(false)
-    postEmbedEvent('analysis_started', { images: captures.length }, brand)
+    postEmbedEvent('analysis_started', { images: captures.length, mode }, brand)
+
+    const images = captures.map((c) => c.blob)
 
     const answers: AnalysisAnswers = {
       age: age ? Number(age) : null,
       sex: sex || null,
       concerns,
       goals,
-      lifestyle: {
-        sleep_hours: sleep ? Number(sleep) : null,
-        stress_level: stress ? Number(stress) : null,
-        sunscreen_days_per_week: spf ? Number(spf) : null,
-        smoking,
-      },
+      lifestyle:
+        mode === 'hair'
+          ? null
+          : {
+              sleep_hours: sleep ? Number(sleep) : null,
+              stress_level: stress ? Number(stress) : null,
+              sunscreen_days_per_week: spf ? Number(spf) : null,
+              smoking,
+            },
     }
 
     try {
-      const res = await analyzeSkin({
-        images: captures.map((c) => c.blob),
-        answers,
-      })
+      const res =
+        mode === 'hair'
+          ? await analyzeHair({
+              images,
+              answers,
+            })
+          : await analyzeSkin({
+              images,
+              answers,
+            })
       setResult(res)
       postEmbedEvent(
         'analysis_completed',
@@ -1757,6 +1802,7 @@ export default function ScanPage() {
           analysis_id: res.analysis_id,
           skin_type: res.skin_type,
           overall_score: res.overall_score,
+          mode,
         },
         brand,
       )
@@ -1777,7 +1823,7 @@ export default function ScanPage() {
       const message = e instanceof Error ? e.message : 'Unexpected error'
       setError(message)
       setStep(3)
-      postEmbedEvent('analysis_failed', { message }, brand)
+      postEmbedEvent('analysis_failed', { message, mode }, brand)
     } finally {
       setLoading(false)
     }
@@ -1787,22 +1833,33 @@ export default function ScanPage() {
     <main className="mx-auto max-w-6xl px-4 py-12">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-2xl font-semibold text-white">Skin Analysis</div>
+          <div className="text-2xl font-semibold text-white">
+            {mode === 'hair' ? 'Hair & Scalp Analysis' : 'Skin Analysis'}
+          </div>
           <div className="mt-2 text-sm text-white/70">
-            Multi-step flow for better scan quality and more reliable results.
+            {mode === 'hair'
+              ? 'Multi-step flow for better scan quality and more reliable scalp results.'
+              : 'Multi-step flow for better scan quality and more reliable results.'}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {steps.map((label, idx) => (
-            <StepPill
-              key={label}
-              n={idx + 1}
-              label={label}
-              active={step === idx}
-              done={step > idx}
-            />
-          ))}
+        <div className="flex flex-col gap-3 sm:items-end">
+          <div className="flex flex-wrap gap-2">
+            <Chip label="Skin" active={mode === 'skin'} onClick={() => updateMode('skin')} />
+            <Chip label="Hair" active={mode === 'hair'} onClick={() => updateMode('hair')} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {steps.map((label, idx) => (
+              <StepPill
+                key={label}
+                n={idx + 1}
+                label={label}
+                active={step === idx}
+                done={step > idx}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1830,21 +1887,27 @@ export default function ScanPage() {
                     className="mt-0.5 h-2 w-2 rounded-full"
                     style={{ backgroundColor: 'rgb(var(--brand-primary-rgb))' }}
                   />
-                  Avoid heavy makeup; remove glasses
+                  {mode === 'hair'
+                    ? 'Remove hats/hair accessories; avoid heavy styling products'
+                    : 'Avoid heavy makeup; remove glasses'}
                 </div>
                 <div className="flex items-start gap-3">
                   <div
                     className="mt-0.5 h-2 w-2 rounded-full"
                     style={{ backgroundColor: 'rgb(var(--brand-primary-rgb))' }}
                   />
-                  Hold still; camera at eye level; include full face
+                  {mode === 'hair'
+                    ? 'Part hair to expose the scalp; hold still; keep the area sharp and well-lit'
+                    : 'Hold still; camera at eye level; include full face'}
                 </div>
               </div>
 
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
                 <div className="text-sm font-semibold text-white">Tip</div>
                 <div className="mt-2 text-sm text-white/70">
-                  Capture 1–3 photos (front + slight left + slight right). The backend chooses the best frame.
+                  {mode === 'hair'
+                    ? 'Capture 1–3 photos from different scalp areas (e.g., front hairline, crown, part line). The backend chooses the best frame.'
+                    : 'Capture 1–3 photos (front + slight left + slight right). The backend chooses the best frame.'}
                 </div>
               </div>
             </div>
@@ -1933,9 +1996,11 @@ export default function ScanPage() {
                   </div>
 
                   <div className="grid gap-3 px-4 pb-4 pt-3">
-                    <div className="text-xs text-white/70">
-                      Face overlay: {meshStatus === 'ready' ? 'on' : meshStatus}
-                    </div>
+                    {mode === 'hair' ? null : (
+                      <div className="text-xs text-white/70">
+                        Face overlay: {meshStatus === 'ready' ? 'on' : meshStatus}
+                      </div>
+                    )}
 
                     <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
                       <div className="flex items-center justify-between gap-3">
@@ -1980,7 +2045,7 @@ export default function ScanPage() {
                           Sharp: {Math.round(scanQuality.sharpness * 100)}%
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-                          Pose: {scanQuality.pose}
+                          {mode === 'hair' ? 'Angle: —' : `Pose: ${scanQuality.pose}`}
                         </div>
                       </div>
 
@@ -1994,7 +2059,9 @@ export default function ScanPage() {
                         </div>
                       ) : (
                         <div className="mt-3 text-xs text-white/60">
-                          Looks good — capture front, then turn slightly left/right.
+                          {mode === 'hair'
+                            ? 'Looks good — capture a couple more scalp areas (front hairline, crown, part line).'
+                            : 'Looks good — capture front, then turn slightly left/right.'}
                         </div>
                       )}
                     </div>
@@ -2050,7 +2117,9 @@ export default function ScanPage() {
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
                 <div className="text-sm font-semibold text-white">Pro tip</div>
                 <div className="mt-2 text-sm text-white/70">
-                  If you have strong shadows on one side of your face, try turning slightly toward your light source.
+                  {mode === 'hair'
+                    ? 'For scalp photos, part your hair to expose the scalp and use even lighting.'
+                    : 'If you have strong shadows on one side of your face, try turning slightly toward your light source.'}
                 </div>
               </div>
             </div>
@@ -2062,7 +2131,9 @@ export default function ScanPage() {
             <div>
               <div className="text-sm font-semibold text-white">Questions</div>
               <div className="mt-2 text-sm text-white/70">
-                Optional, but helps personalize the routine and skin-age estimation.
+                {mode === 'hair'
+                  ? 'Optional, but helps personalize the routine.'
+                  : 'Optional, but helps personalize the routine and skin-age estimation.'}
               </div>
 
               <div className="mt-6 grid gap-4">
@@ -2090,50 +2161,52 @@ export default function ScanPage() {
                   </select>
                 </label>
 
-                <div className="grid gap-3 rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <div className="text-xs font-semibold tracking-wide text-white/70">Lifestyle</div>
+                {mode === 'hair' ? null : (
+                  <div className="grid gap-3 rounded-3xl border border-white/10 bg-white/5 p-5">
+                    <div className="text-xs font-semibold tracking-wide text-white/70">Lifestyle</div>
 
-                  <label className="grid gap-2">
-                    <span className="text-xs text-white/60">Sleep hours</span>
-                    <input
-                      value={sleep}
-                      onChange={(e) => setSleep(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="7.5"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
-                    />
-                  </label>
+                    <label className="grid gap-2">
+                      <span className="text-xs text-white/60">Sleep hours</span>
+                      <input
+                        value={sleep}
+                        onChange={(e) => setSleep(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="7.5"
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
+                      />
+                    </label>
 
-                  <label className="grid gap-2">
-                    <span className="text-xs text-white/60">Stress level (0–10)</span>
-                    <input
-                      value={stress}
-                      onChange={(e) => setStress(e.target.value)}
-                      inputMode="numeric"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
-                    />
-                  </label>
+                    <label className="grid gap-2">
+                      <span className="text-xs text-white/60">Stress level (0–10)</span>
+                      <input
+                        value={stress}
+                        onChange={(e) => setStress(e.target.value)}
+                        inputMode="numeric"
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
+                      />
+                    </label>
 
-                  <label className="grid gap-2">
-                    <span className="text-xs text-white/60">Sunscreen days/week (0–7)</span>
-                    <input
-                      value={spf}
-                      onChange={(e) => setSpf(e.target.value)}
-                      inputMode="numeric"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
-                    />
-                  </label>
+                    <label className="grid gap-2">
+                      <span className="text-xs text-white/60">Sunscreen days/week (0–7)</span>
+                      <input
+                        value={spf}
+                        onChange={(e) => setSpf(e.target.value)}
+                        inputMode="numeric"
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none"
+                      />
+                    </label>
 
-                  <label className="inline-flex items-center gap-3 text-sm text-white/70">
-                    <input
-                      type="checkbox"
-                      checked={smoking}
-                      onChange={(e) => setSmoking(e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    Smoking
-                  </label>
-                </div>
+                    <label className="inline-flex items-center gap-3 text-sm text-white/70">
+                      <input
+                        type="checkbox"
+                        checked={smoking}
+                        onChange={(e) => setSmoking(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      Smoking
+                    </label>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2147,15 +2220,10 @@ export default function ScanPage() {
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
                   <div className="text-xs font-semibold tracking-wide text-white/70">Concerns</div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {[
-                      'Acne',
-                      'Dark spots',
-                      'Redness',
-                      'Texture',
-                      'Oiliness',
-                      'Dryness',
-                      'Fine lines',
-                    ].map((c) => (
+                    {(mode === 'hair'
+                      ? ['Flakes', 'Itchiness', 'Oiliness', 'Redness', 'Dryness', 'Hair thinning', 'Hair breakage']
+                      : ['Acne', 'Dark spots', 'Redness', 'Texture', 'Oiliness', 'Dryness', 'Fine lines']
+                    ).map((c) => (
                       <Chip
                         key={c}
                         label={c}
@@ -2169,14 +2237,10 @@ export default function ScanPage() {
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
                   <div className="text-xs font-semibold tracking-wide text-white/70">Goals</div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {[
-                      'Glow',
-                      'Calm irritation',
-                      'Even tone',
-                      'Clear pores',
-                      'Anti-aging',
-                      'Hydration',
-                    ].map((g) => (
+                    {(mode === 'hair'
+                      ? ['Reduce flakes', 'Calm irritation', 'Balance oil', 'Healthy growth', 'Stronger hair', 'Volume']
+                      : ['Glow', 'Calm irritation', 'Even tone', 'Clear pores', 'Anti-aging', 'Hydration']
+                    ).map((g) => (
                       <Chip
                         key={g}
                         label={g}
@@ -2302,21 +2366,23 @@ export default function ScanPage() {
                         </div>
                       </div>
 
-                      <div>
-                        <div className="flex items-center justify-between text-xs text-white/60">
-                          <span>Framing</span>
-                          <span>{Math.round(result.quality.face_coverage * 100)}%</span>
+                      {mode === 'hair' ? null : (
+                        <div>
+                          <div className="flex items-center justify-between text-xs text-white/60">
+                            <span>Framing</span>
+                            <span>{Math.round(result.quality.face_coverage * 100)}%</span>
+                          </div>
+                          <div className="mt-2 h-2 rounded-full bg-white/10">
+                            <div
+                              className="h-2 rounded-full"
+                              style={{
+                                width: `${Math.max(0, Math.min(100, result.quality.face_coverage * 100))}%`,
+                                backgroundColor: 'rgba(34,197,94,0.85)',
+                              }}
+                            />
+                          </div>
                         </div>
-                        <div className="mt-2 h-2 rounded-full bg-white/10">
-                          <div
-                            className="h-2 rounded-full"
-                            style={{
-                              width: `${Math.max(0, Math.min(100, result.quality.face_coverage * 100))}%`,
-                              backgroundColor: 'rgba(34,197,94,0.85)',
-                            }}
-                          />
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     {result.quality.warnings.length > 0 ? (
@@ -2330,38 +2396,40 @@ export default function ScanPage() {
                     )}
                   </div>
 
-                  <div className="mt-6 grid gap-3">
-                    <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                      <div className="text-xs text-white/60">Fitzpatrick estimate</div>
-                      <div className="mt-2 text-base font-semibold text-white">
-                        {result.estimated_fitzpatrick ? `Type ${result.estimated_fitzpatrick}` : '—'}
+                  {mode === 'hair' ? null : (
+                    <div className="mt-6 grid gap-3">
+                      <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                        <div className="text-xs text-white/60">Fitzpatrick estimate</div>
+                        <div className="mt-2 text-base font-semibold text-white">
+                          {result.estimated_fitzpatrick ? `Type ${result.estimated_fitzpatrick}` : '—'}
+                        </div>
+                        <div className="mt-2 text-xs text-white/60">
+                          {result.estimated_fitzpatrick
+                            ? fitzpatrickMeaning(result.estimated_fitzpatrick)
+                            : 'Estimated from the photo; lighting can affect accuracy.'}
+                        </div>
                       </div>
-                      <div className="mt-2 text-xs text-white/60">
-                        {result.estimated_fitzpatrick
-                          ? fitzpatrickMeaning(result.estimated_fitzpatrick)
-                          : 'Estimated from the photo; lighting can affect accuracy.'}
+                      <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                        <div className="text-xs text-white/60">Skin age estimate</div>
+                        <div className="mt-2 text-base font-semibold text-white">
+                          {result.skin_age !== null && result.skin_age !== undefined
+                            ? `${result.skin_age.toFixed(1)} yrs`
+                            : '—'}
+                          {result.skin_age_delta !== null && result.skin_age_delta !== undefined ? (
+                            <span className="ml-2 text-sm text-white/60">
+                              ({result.skin_age_delta >= 0 ? '+' : ''}
+                              {result.skin_age_delta.toFixed(1)})
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 text-xs text-white/60">
+                          {result.skin_age !== null && result.skin_age !== undefined
+                            ? 'Compared to your entered age; delta is driven by wrinkles, tone and redness.'
+                            : 'Enter your age in Step 2 to enable this estimate.'}
+                        </div>
                       </div>
                     </div>
-                    <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                      <div className="text-xs text-white/60">Skin age estimate</div>
-                      <div className="mt-2 text-base font-semibold text-white">
-                        {result.skin_age !== null && result.skin_age !== undefined
-                          ? `${result.skin_age.toFixed(1)} yrs`
-                          : '—'}
-                        {result.skin_age_delta !== null && result.skin_age_delta !== undefined ? (
-                          <span className="ml-2 text-sm text-white/60">
-                            ({result.skin_age_delta >= 0 ? '+' : ''}
-                            {result.skin_age_delta.toFixed(1)})
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 text-xs text-white/60">
-                        {result.skin_age !== null && result.skin_age !== undefined
-                          ? 'Compared to your entered age; delta is driven by wrinkles, tone and redness.'
-                          : 'Enter your age in Step 2 to enable this estimate.'}
-                      </div>
-                    </div>
-                  </div>
+                  )}
 
                   <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
                     <div className="text-sm font-semibold text-white">Notes</div>
@@ -2393,62 +2461,73 @@ export default function ScanPage() {
 
                 <div className="grid gap-6 lg:col-span-2">
                   {selectedCapture ? (
-                    <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-white">AI concern map</div>
-                          <div className="mt-2 text-sm text-white/70">
-                            Visual overlay of likely concern regions (non-medical). Tap a concern to focus.
+                    mode === 'hair' ? (
+                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                        <div className="text-sm font-semibold text-white">Selected photo</div>
+                        <div className="mt-2 text-sm text-white/70">The API chose this frame for analysis.</div>
+
+                        <div className="mt-5 overflow-hidden rounded-[2rem] border border-white/10 bg-black">
+                          <img src={selectedCapture.url} className="h-auto w-full" alt="Selected frame" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-white">AI concern map</div>
+                            <div className="mt-2 text-sm text-white/70">
+                              Visual overlay of likely concern regions (non-medical). Tap a concern to focus.
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Chip
+                              label="Top concerns"
+                              active={overlayFocus === 'top'}
+                              onClick={() => setOverlayFocus('top')}
+                            />
+                            {topConcernMetrics.map((m) => (
+                              <Chip
+                                key={m.id}
+                                label={m.label.replace(/\s*\(proxy\)\s*/i, '').trim()}
+                                active={overlayFocus === m.id}
+                                onClick={() => setOverlayFocus(m.id)}
+                              />
+                            ))}
+
+                            <Button
+                              variant="secondary"
+                              className="px-3 py-2"
+                              onClick={downloadConcernMap}
+                              disabled={concernMapStatus !== 'ready'}
+                            >
+                              <Download className="h-4 w-4" />
+                              Download
+                            </Button>
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Chip
-                            label="Top concerns"
-                            active={overlayFocus === 'top'}
-                            onClick={() => setOverlayFocus('top')}
-                          />
-                          {topConcernMetrics.map((m) => (
-                            <Chip
-                              key={m.id}
-                              label={m.label.replace(/\s*\(proxy\)\s*/i, '').trim()}
-                              active={overlayFocus === m.id}
-                              onClick={() => setOverlayFocus(m.id)}
+                        <div className="mt-5 overflow-hidden rounded-[2rem] border border-white/10 bg-black">
+                          <div className="relative">
+                            <img
+                              ref={resultImageRef}
+                              src={selectedCapture.url}
+                              onLoad={() => setResultImageTick((v) => v + 1)}
+                              className="h-auto w-full"
+                              alt="Selected frame"
                             />
-                          ))}
+                            <canvas
+                              ref={resultOverlayRef}
+                              className="pointer-events-none absolute inset-0 h-full w-full"
+                            />
+                          </div>
+                        </div>
 
-                          <Button
-                            variant="secondary"
-                            className="px-3 py-2"
-                            onClick={downloadConcernMap}
-                            disabled={concernMapStatus !== 'ready'}
-                          >
-                            <Download className="h-4 w-4" />
-                            Download
-                          </Button>
+                        <div className="mt-3 text-xs text-white/60">
+                          Overlay status: {concernMapStatus === 'ready' ? 'on' : concernMapStatus}
                         </div>
                       </div>
-
-                      <div className="mt-5 overflow-hidden rounded-[2rem] border border-white/10 bg-black">
-                        <div className="relative">
-                          <img
-                            ref={resultImageRef}
-                            src={selectedCapture.url}
-                            onLoad={() => setResultImageTick((v) => v + 1)}
-                            className="h-auto w-full"
-                            alt="Selected frame"
-                          />
-                          <canvas
-                            ref={resultOverlayRef}
-                            className="pointer-events-none absolute inset-0 h-full w-full"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mt-3 text-xs text-white/60">
-                        Overlay status: {concernMapStatus === 'ready' ? 'on' : concernMapStatus}
-                      </div>
-                    </div>
+                    )
                   ) : null}
 
                   <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
@@ -2534,99 +2613,101 @@ export default function ScanPage() {
                     )}
                   </div>
 
-                  <div className="grid gap-6 lg:grid-cols-2">
-                    <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                      <div className="text-sm font-semibold text-white">Recommended ingredients</div>
-                      <div className="mt-2 text-sm text-white/70">
-                        Based on your scan plus the concerns and goals you selected.
-                      </div>
-
-                      {recommendationsLoading ? (
-                        <div className="mt-4 text-sm text-white/70">Loading…</div>
-                      ) : recommendations && recommendations.ingredients.length > 0 ? (
-                        <div className="mt-4 grid gap-3">
-                          {recommendations.ingredients.map((ing) => (
-                            <div
-                              key={ing.id}
-                              className="rounded-3xl border border-white/10 bg-white/5 p-5"
-                            >
-                              <div className="text-sm font-semibold text-white">{ing.name}</div>
-                              <div className="mt-2 text-sm text-white/70">{ing.why}</div>
-                              {ing.caution ? (
-                                <div className="mt-2 text-xs text-white/55">{ing.caution}</div>
-                              ) : null}
-                              {ing.links && ing.links.length > 0 ? (
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {ing.links.map((lnk) => (
-                                    <a
-                                      key={lnk.url}
-                                      href={lnk.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="group inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/7"
-                                    >
-                                      {lnk.label}
-                                      <ExternalLink className="h-3.5 w-3.5 opacity-70 transition group-hover:opacity-100" />
-                                    </a>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
+                  {mode === 'hair' ? null : (
+                    <div className="grid gap-6 lg:grid-cols-2">
+                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                        <div className="text-sm font-semibold text-white">Recommended ingredients</div>
+                        <div className="mt-2 text-sm text-white/70">
+                          Based on your scan plus the concerns and goals you selected.
                         </div>
-                      ) : (
-                        <div className="mt-4 text-sm text-white/70">No ingredient recommendations.</div>
-                      )}
-                    </div>
 
-                    <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                      <div className="text-sm font-semibold text-white">Shop products</div>
-                      <div className="mt-2 text-sm text-white/70">
-                        Suggested matches from {brand.name}.
-                      </div>
-
-                      {recommendationsLoading ? (
-                        <div className="mt-4 text-sm text-white/70">Loading…</div>
-                      ) : recommendations && recommendations.products.length > 0 ? (
-                        <div className="mt-4 grid gap-3">
-                          {recommendations.products.map((p) => (
-                            <a
-                              key={p.id}
-                              href={p.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() =>
-                                postEmbedEvent(
-                                  'product_clicked',
-                                  { product_id: p.id, product_name: p.name, url: p.url },
-                                  brand,
-                                )
-                              }
-                              className="group flex gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 transition hover:bg-white/7"
-                            >
-                              <ProductThumb p={p} />
-
-                              <div className="min-w-0 flex-1">
-                                <div className="text-sm font-semibold text-white">{p.name}</div>
-                                <div className="mt-1 text-xs text-white/60">{p.category}</div>
-
-                                {productMatchReason(p) ? (
-                                  <div className="mt-2 text-xs text-white/60">{productMatchReason(p)}</div>
+                        {recommendationsLoading ? (
+                          <div className="mt-4 text-sm text-white/70">Loading…</div>
+                        ) : recommendations && recommendations.ingredients.length > 0 ? (
+                          <div className="mt-4 grid gap-3">
+                            {recommendations.ingredients.map((ing) => (
+                              <div
+                                key={ing.id}
+                                className="rounded-3xl border border-white/10 bg-white/5 p-5"
+                              >
+                                <div className="text-sm font-semibold text-white">{ing.name}</div>
+                                <div className="mt-2 text-sm text-white/70">{ing.why}</div>
+                                {ing.caution ? (
+                                  <div className="mt-2 text-xs text-white/55">{ing.caution}</div>
                                 ) : null}
-
-                                <div className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80">
-                                  {formatMoney(p.price, p.currency)}
-                                  <ExternalLink className="h-3.5 w-3.5 opacity-70 transition group-hover:opacity-100" />
-                                </div>
+                                {ing.links && ing.links.length > 0 ? (
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {ing.links.map((lnk) => (
+                                      <a
+                                        key={lnk.url}
+                                        href={lnk.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="group inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/7"
+                                      >
+                                        {lnk.label}
+                                        <ExternalLink className="h-3.5 w-3.5 opacity-70 transition group-hover:opacity-100" />
+                                      </a>
+                                    ))}
+                                  </div>
+                                ) : null}
                               </div>
-                            </a>
-                          ))}
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-4 text-sm text-white/70">No ingredient recommendations.</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                        <div className="text-sm font-semibold text-white">Shop products</div>
+                        <div className="mt-2 text-sm text-white/70">
+                          Suggested matches from {brand.name}.
                         </div>
-                      ) : (
-                        <div className="mt-4 text-sm text-white/70">No product matches yet.</div>
-                      )}
+
+                        {recommendationsLoading ? (
+                          <div className="mt-4 text-sm text-white/70">Loading…</div>
+                        ) : recommendations && recommendations.products.length > 0 ? (
+                          <div className="mt-4 grid gap-3">
+                            {recommendations.products.map((p) => (
+                              <a
+                                key={p.id}
+                                href={p.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={() =>
+                                  postEmbedEvent(
+                                    'product_clicked',
+                                    { product_id: p.id, product_name: p.name, url: p.url },
+                                    brand,
+                                  )
+                                }
+                                className="group flex gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 transition hover:bg-white/7"
+                              >
+                                <ProductThumb p={p} />
+
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-semibold text-white">{p.name}</div>
+                                  <div className="mt-1 text-xs text-white/60">{p.category}</div>
+
+                                  {productMatchReason(p) ? (
+                                    <div className="mt-2 text-xs text-white/60">{productMatchReason(p)}</div>
+                                  ) : null}
+
+                                  <div className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80">
+                                    {formatMoney(p.price, p.currency)}
+                                    <ExternalLink className="h-3.5 w-3.5 opacity-70 transition group-hover:opacity-100" />
+                                  </div>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="mt-4 text-sm text-white/70">No product matches yet.</div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
                     <div className="flex items-center justify-between gap-3">
@@ -2748,19 +2829,36 @@ export default function ScanPage() {
                   <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
                     <div className="text-sm font-semibold text-white">How this works</div>
                     <div className="mt-2 grid gap-3 text-sm text-white/70">
-                      <div>
-                        Face alignment runs on-device using MediaPipe Face Landmarker (GPU-accelerated when
-                        available) to keep overlays aligned to your face.
-                      </div>
-                      <div>
-                        The API uses OpenCV + MediaPipe to compute cosmetic skin metrics (redness, texture,
-                        oiliness, etc.) and picks the best frame for analysis.
-                      </div>
-                      <div>
-                        Ingredient recommendations come from mapping the top metric severities to proven
-                        ingredient categories, then products are scored against those ingredients and your
-                        skin type using the catalog feed.
-                      </div>
+                      {mode === 'hair' ? (
+                        <>
+                          <div>
+                            Hair mode analyzes your scalp photos server-side and automatically selects the best frame.
+                          </div>
+                          <div>
+                            The API uses computer vision to estimate cosmetic scalp and hair metrics (for example,
+                            flaking, redness, oiliness proxies, and density signals) from the selected image.
+                          </div>
+                          <div>
+                            You’ll see a severity dashboard and a suggested routine based on the detected metrics.
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            Face alignment runs on-device using MediaPipe Face Landmarker (GPU-accelerated when
+                            available) to keep overlays aligned to your face.
+                          </div>
+                          <div>
+                            The API uses OpenCV + MediaPipe to compute cosmetic skin metrics (redness, texture,
+                            oiliness, etc.) and picks the best frame for analysis.
+                          </div>
+                          <div>
+                            Ingredient recommendations come from mapping the top metric severities to proven
+                            ingredient categories, then products are scored against those ingredients and your
+                            skin type using the catalog feed.
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

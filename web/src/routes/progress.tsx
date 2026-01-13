@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import {
   CartesianGrid,
   Line,
@@ -47,6 +47,8 @@ function findMetricSeverity(entry: StoredAnalysis, metricId: string): number | n
 }
 
 export default function ProgressPage() {
+  const location = useLocation()
+
   const [nonce, setNonce] = useState(0)
   const [metricId, setMetricId] = useState('')
   const [ioMessage, setIoMessage] = useState<string | null>(null)
@@ -222,7 +224,7 @@ export default function ProgressPage() {
           </div>
           <div className="mt-6">
             <Link
-              to="/scan"
+              to={`/scan${location.search}`}
               className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900"
             >
               Start a scan

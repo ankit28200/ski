@@ -14,11 +14,13 @@ function buildWidgetSrc(search: string, brandName: string) {
   const accent = params.get('accent')
   const catalog = params.get('catalog')
   const origin = params.get('origin')
+  const mode = params.get('mode')
 
   const out = new URLSearchParams()
   out.set('embed', '1')
   out.set('brand', brandName)
 
+  if (mode === 'hair' || mode === 'skin') out.set('mode', mode)
   if (api && api.trim()) out.set('api', api)
   if (logo && logo.trim()) out.set('logo', logo)
   if (primary && primary.trim()) out.set('primary', primary)

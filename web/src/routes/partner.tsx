@@ -72,6 +72,7 @@ function buildEmbedUrl(params: {
   appUrl: string
   apiUrl?: string
   theme: string
+  mode?: 'skin' | 'hair'
   brand?: string
   logo?: string
   primary?: string
@@ -87,6 +88,10 @@ function buildEmbedUrl(params: {
     url.pathname = url.pathname.replace(/\/$/, '') + '/scan'
     url.searchParams.set('embed', '1')
     url.searchParams.set('theme', params.theme)
+
+    if (params.mode === 'hair' || params.mode === 'skin') {
+      url.searchParams.set('mode', params.mode)
+    }
 
     if (params.apiUrl) url.searchParams.set('api', params.apiUrl)
     if (params.brand) url.searchParams.set('brand', params.brand)
@@ -108,6 +113,7 @@ export default function PartnerPage() {
   const [appUrl, setAppUrl] = useState(defaultOrigin)
   const [apiUrl, setApiUrl] = useState('')
   const [theme, setTheme] = useState('dark')
+  const [mode, setMode] = useState<'skin' | 'hair'>('skin')
   const [brand, setBrand] = useState('Demo Beauty')
   const [logo, setLogo] = useState('')
   const [primary, setPrimary] = useState('#38bdf8')
@@ -124,6 +130,7 @@ export default function PartnerPage() {
         appUrl,
         apiUrl: apiUrl || undefined,
         theme,
+        mode,
         brand: brand || undefined,
         logo: logo || undefined,
         primary: primary || undefined,
@@ -131,7 +138,7 @@ export default function PartnerPage() {
         catalog: catalog || undefined,
         origin: origin || undefined,
       }),
-    [accent, apiUrl, appUrl, brand, catalog, logo, origin, primary, theme],
+    [accent, apiUrl, appUrl, brand, catalog, logo, mode, origin, primary, theme],
   )
 
   const scriptUrl = useMemo(() => {
@@ -146,6 +153,7 @@ export default function PartnerPage() {
       ['data-skinsense-embed', ''],
       ['data-src', appUrl],
       ['data-theme', theme],
+      ['data-mode', mode],
       ['data-width', width],
       ['data-height', height],
     ]
@@ -168,7 +176,7 @@ export default function PartnerPage() {
     const script = `<script async src="${scriptUrl}"><\\/script>`
 
     return `${div}\n${script}`
-  }, [accent, apiUrl, appUrl, brand, catalog, height, logo, origin, primary, scriptUrl, theme, width])
+  }, [accent, apiUrl, appUrl, brand, catalog, height, logo, mode, origin, primary, scriptUrl, theme, width])
 
   async function copyToClipboard() {
     try {
@@ -210,6 +218,13 @@ export default function PartnerPage() {
                 <Select value={theme} onChange={(e) => setTheme(e.target.value)}>
                   <option value="dark">dark</option>
                   <option value="light">light</option>
+                </Select>
+              </Field>
+
+              <Field label="Mode">
+                <Select value={mode} onChange={(e) => setMode(e.target.value === 'hair' ? 'hair' : 'skin')}>
+                  <option value="skin">skin</option>
+                  <option value="hair">hair</option>
                 </Select>
               </Field>
 

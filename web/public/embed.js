@@ -16,6 +16,7 @@
     var src = el.getAttribute('data-src') || ''
     var api = el.getAttribute('data-api') || ''
     var theme = el.getAttribute('data-theme') || 'dark'
+    var mode = el.getAttribute('data-mode') || ''
     var brand = el.getAttribute('data-brand') || ''
     var logo = el.getAttribute('data-logo') || ''
     var primary = el.getAttribute('data-primary') || ''
@@ -31,6 +32,10 @@
     url.pathname = url.pathname.replace(/\/$/, '') + '/scan'
     url.searchParams.set('embed', '1')
     url.searchParams.set('theme', theme)
+
+    if (mode === 'hair' || mode === 'skin') {
+      url.searchParams.set('mode', mode)
+    }
 
     if (api) {
       url.searchParams.set('api', api)

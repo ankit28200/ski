@@ -58,6 +58,47 @@ export async function analyzeSkin(params: {
   return (await res.json()) as AnalysisResponse
 }
 
+export async function analyzeHair(params: {
+  images: Blob[]
+  answers: AnalysisAnswers
+  debug?: boolean
+}): Promise<AnalysisResponse> {
+  const { images, answers, debug } = params
+
+  const form = new FormData()
+  images.forEach((blob, idx) => {
+    const file = new File([blob], `hair-${idx + 1}.jpg`, {
+      type: blob.type || 'image/jpeg',
+    })
+    form.append('images', file)
+  })
+
+  form.append('answers', JSON.stringify(answers))
+  form.append('debug', debug ? 'true' : 'false')
+
+  const base = apiBase()
+  const url = `${base}/analyze/hair`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    body: form,
+  })
+
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`
+    try {
+      const data = (await res.json()) as { detail?: string }
+      if (data.detail) message = data.detail
+    } catch {
+      const text = await res.text().catch(() => '')
+      if (text) message = text
+    }
+    throw new Error(message)
+  }
+
+  return (await res.json()) as AnalysisResponse
+}
+
 export async function doctorChat(params: {
   message: string
   history?: ChatTurn[]

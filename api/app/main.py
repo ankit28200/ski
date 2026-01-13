@@ -14,7 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
-from .analysis import analyze_images
+from .analysis import analyze_hair_images, analyze_images
 from .schemas import AnalysisAnswers, AnalysisResponse, ChatTurn, DoctorChatResponse
 
 app = FastAPI(title="Skin AI", version="0.1.0")
@@ -276,6 +276,25 @@ async def analyze(
 
     try:
         return await analyze_images(images=images, answers=parsed, debug=debug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/analyze/hair")
+async def analyze_hair(
+    images: list[UploadFile] = File(...),
+    answers: str | None = Form(default=None),
+    debug: bool = Form(default=False),
+):
+    parsed: AnalysisAnswers | None = None
+    if answers:
+        try:
+            parsed = AnalysisAnswers.model_validate_json(answers)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid answers JSON: {e}")
+
+    try:
+        return await analyze_hair_images(images=images, answers=parsed, debug=debug)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

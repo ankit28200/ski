@@ -7,7 +7,7 @@ import {
   Sparkles,
   Timer,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
 import { cn } from '../lib/cn'
@@ -70,6 +70,8 @@ function Step({
 }
 
 export default function LandingPage() {
+  const location = useLocation()
+
   return (
     <main>
       <section className="bg-hero-gradient">
@@ -100,7 +102,7 @@ export default function LandingPage() {
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  to="/scan"
+                  to={`/scan${location.search}`}
                   className={cn(
                     'inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900',
                     'shadow-glow transition hover:translate-y-[-1px] hover:bg-white/95',
@@ -110,7 +112,7 @@ export default function LandingPage() {
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link
-                  to="/calculator"
+                  to={`/calculator${location.search}`}
                   className={cn(
                     'inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-white',
                     'transition hover:bg-white/10',
@@ -237,7 +239,7 @@ export default function LandingPage() {
 
               <div className="mt-6">
                 <Link
-                  to="/scan"
+                  to={`/scan${location.search}`}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-glow transition hover:translate-y-[-1px]"
                 >
                   Try now

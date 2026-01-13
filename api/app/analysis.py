@@ -212,6 +212,234 @@ def _compute_quality(gray: np.ndarray, landmarks: np.ndarray | None) -> ImageQua
     )
 
 
+def _compute_hair_quality(gray: np.ndarray) -> ImageQuality:
+    blur = _laplacian_blur(gray)
+    bright = _brightness(gray)
+
+    warnings: list[str] = []
+
+    if bright < 0.25:
+        warnings.append("Lighting is low; move to brighter, even light.")
+    if bright > 0.88:
+        warnings.append("Lighting is very strong; avoid overexposure.")
+    if blur < 0.25:
+        warnings.append("Image is blurry; hold still and refocus.")
+
+    bright_centered = 1.0 - abs(bright - 0.55) / 0.55
+    bright_centered = _clip01(bright_centered)
+
+    score = 0.55 * blur + 0.45 * bright_centered
+    score = _clip01(score)
+
+    return ImageQuality(
+        score=score,
+        brightness=bright,
+        blur=blur,
+        face_found=False,
+        face_coverage=0.0,
+        warnings=warnings,
+    )
+
+
+def _hair_overall_score(metrics: list[MetricResult]) -> float:
+    if not metrics:
+        return 0.0
+
+    weights = {
+        "dandruff": 0.30,
+        "scalp_oiliness": 0.25,
+        "scalp_redness": 0.20,
+        "scalp_texture": 0.25,
+    }
+
+    tot_w = 0.0
+    sev = 0.0
+    for m in metrics:
+        w = float(weights.get(m.id, 0.0))
+        if w <= 0.0:
+            continue
+        sev += w * float(m.severity)
+        tot_w += w
+
+    if tot_w <= 0.0:
+        return 0.0
+
+    sev /= tot_w
+    return float(max(0.0, min(100.0, 100.0 - sev)))
+
+
+def _compute_hair_metrics(bgr: np.ndarray, quality: ImageQuality) -> tuple[list[MetricResult], dict[str, object]]:
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+    v = hsv[:, :, 2]
+    s = hsv[:, :, 1]
+
+    total = float(max(1, int(gray.shape[0] * gray.shape[1])))
+
+    flakes = (v > 215) & (s < 80)
+    glare = (v > 235) & (s < 60)
+
+    flakes_ratio = float(np.sum(flakes & (~glare))) / total
+    glare_ratio = float(np.sum(glare)) / total
+
+    a_mean = float(np.mean(lab[:, :, 1]))
+    a_red = float(max(0.0, a_mean - 128.0))
+
+    lap = cv2.Laplacian(gray, cv2.CV_32F)
+    texture_value = float(np.mean(np.abs(lap)))
+
+    dandruff_sev = _severity_from_range(flakes_ratio, 0.001, 0.015)
+    oiliness_sev = _severity_from_range(glare_ratio, 0.0005, 0.010)
+    redness_sev = _severity_from_range(a_red, 5.0, 18.0)
+    texture_sev = _severity_from_range(texture_value, 2.0, 8.0)
+
+    conf = float(max(0.0, min(1.0, 0.25 + 0.75 * float(quality.score))))
+
+    def _level(sev: float) -> str:
+        if sev < 25:
+            return "Low"
+        if sev < 55:
+            return "Moderate"
+        return "High"
+
+    metrics: list[MetricResult] = [
+        _metric(
+            "dandruff",
+            "Flakes / dandruff",
+            dandruff_sev,
+            conf,
+            f"{_level(dandruff_sev)} sign of visible flakes / scaling.",
+            [
+                "Use an anti-dandruff shampoo 2–3x/week (e.g., salicylic acid / zinc pyrithione / ketoconazole as tolerated).",
+                "Massage scalp gently; avoid aggressive scratching.",
+                "If flakes + itching persist, consider in-person dermatology advice.",
+            ],
+            value=flakes_ratio * 100.0,
+            unit="%",
+        ),
+        _metric(
+            "scalp_oiliness",
+            "Scalp oiliness",
+            oiliness_sev,
+            conf,
+            f"{_level(oiliness_sev)} sign of scalp oil / shine.",
+            [
+                "Wash scalp as needed with a gentle shampoo; rinse thoroughly.",
+                "Avoid applying heavy oils to the scalp; focus oils on hair lengths.",
+                "Keep styling products off the scalp when possible.",
+            ],
+            value=glare_ratio * 100.0,
+            unit="%",
+        ),
+        _metric(
+            "scalp_redness",
+            "Scalp redness",
+            redness_sev,
+            conf,
+            f"{_level(redness_sev)} sign of redness / irritation.",
+            [
+                "Switch to a gentle, fragrance-minimized shampoo for a few washes.",
+                "Avoid very hot water and vigorous scrubbing.",
+                "If there is pain, oozing, or spreading redness, seek medical care.",
+            ],
+        ),
+        _metric(
+            "scalp_texture",
+            "Scalp texture",
+            texture_sev,
+            conf,
+            f"{_level(texture_sev)} sign of scalp texture / roughness.",
+            [
+                "Try a gentle scalp exfoliant occasionally (e.g., salicylic acid) if tolerated.",
+                "Use a light, soothing scalp serum (e.g., panthenol / niacinamide).",
+                "Be consistent for 3–4 weeks before judging results.",
+            ],
+        ),
+    ]
+
+    dbg: dict[str, object] = {
+        "flakes_ratio": flakes_ratio,
+        "glare_ratio": glare_ratio,
+        "a_mean": a_mean,
+        "texture_value": texture_value,
+    }
+
+    return metrics, dbg
+
+
+def _classify_scalp_type(metrics: list[MetricResult]) -> str:
+    if not metrics:
+        return "Unknown"
+
+    sevs: dict[str, float] = {m.id: float(m.severity) for m in metrics}
+    candidates: list[tuple[str, float]] = [
+        ("Flaky", sevs.get("dandruff", 0.0)),
+        ("Oily", sevs.get("scalp_oiliness", 0.0)),
+        ("Irritated", sevs.get("scalp_redness", 0.0)),
+        ("Dry", sevs.get("scalp_texture", 0.0)),
+    ]
+
+    scalp_type, best = max(candidates, key=lambda x: x[1])
+    if best < 40.0:
+        return "Balanced"
+    return scalp_type
+
+
+def _build_hair_routine(scalp_type: str, metrics: list[MetricResult]) -> list[RoutineStep]:
+    by_id = {m.id: m for m in metrics}
+    dandruff = by_id.get("dandruff")
+    oil = by_id.get("scalp_oiliness")
+    redness = by_id.get("scalp_redness")
+    texture = by_id.get("scalp_texture")
+
+    steps: list[RoutineStep] = [
+        RoutineStep(time="Core", step="Gentle shampoo", why="Keeps scalp clean without overstripping."),
+    ]
+
+    if oil is not None and oil.severity > 55:
+        steps.append(
+            RoutineStep(
+                time="Weekly",
+                step="Clarifying wash (1x/week)",
+                why="Helps reduce buildup and excess oil.",
+            )
+        )
+
+    if dandruff is not None and dandruff.severity > 55:
+        steps.append(
+            RoutineStep(
+                time="2-3x/week",
+                step="Anti-dandruff shampoo",
+                why="Targets flakes and itching.",
+            )
+        )
+
+    if texture is not None and texture.severity > 55:
+        steps.append(
+            RoutineStep(
+                time="After wash",
+                step="Light scalp serum",
+                why="Helps soothe dryness and support comfort.",
+            )
+        )
+
+    if redness is not None and redness.severity > 55:
+        steps.append(
+            RoutineStep(
+                time="Caution",
+                step="Fragrance-minimized products",
+                why="May reduce irritation triggers.",
+            )
+        )
+
+    if scalp_type == "Balanced":
+        steps.append(RoutineStep(time="Maintain", step="Keep routine simple", why="Avoid unnecessary irritation."))
+
+    return steps
+
+
 def _skin_masks(bgr: np.ndarray, landmarks: np.ndarray) -> dict[str, np.ndarray]:
     h, w = bgr.shape[:2]
     mp_face_mesh = mp.solutions.face_mesh
@@ -747,4 +975,59 @@ async def analyze_images(images: list[UploadFile], answers: AnalysisAnswers | No
         routine=routine,
         notes=notes,
         debug=chosen.debug,
+    )
+
+
+async def analyze_hair_images(
+    images: list[UploadFile],
+    answers: AnalysisAnswers | None,
+    debug: bool = False,
+) -> AnalysisResponse:
+    if not images:
+        raise ValueError("No images provided")
+
+    analyzed: list[tuple[ImageQuality, list[MetricResult], str, dict[str, object]]] = []
+
+    for upload in images:
+        data = await upload.read()
+        bgr = _decode_upload_to_bgr(data)
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+
+        quality = _compute_hair_quality(gray)
+        metrics, dbg = _compute_hair_metrics(bgr, quality)
+        scalp_type = _classify_scalp_type(metrics)
+
+        analyzed.append((quality, metrics, scalp_type, dbg))
+
+    selected_idx = int(max(range(len(analyzed)), key=lambda i: analyzed[i][0].score))
+    quality, metrics, scalp_type, dbg = analyzed[selected_idx]
+
+    overall = _hair_overall_score(metrics)
+    routine = _build_hair_routine(scalp_type, metrics)
+
+    notes = [
+        "This tool provides cosmetic-style insights only and is not a medical diagnosis.",
+        "Results depend heavily on lighting, camera quality, and angle.",
+    ]
+
+    if answers is not None and answers.concerns:
+        notes.append("User concerns: " + ", ".join(answers.concerns[:8]))
+
+    if quality.warnings:
+        notes.append("Retake suggestions: " + " ".join(quality.warnings))
+
+    return AnalysisResponse(
+        analysis_id=str(uuid.uuid4()),
+        selected_image=selected_idx,
+        overall_score=overall,
+        skin_type=scalp_type,
+        estimated_fitzpatrick=None,
+        skin_age=None,
+        skin_age_delta=None,
+        metrics=metrics,
+        heatmaps=None,
+        quality=quality,
+        routine=routine,
+        notes=notes,
+        debug=dbg if debug else None,
     )

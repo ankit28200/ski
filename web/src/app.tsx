@@ -1,5 +1,5 @@
 import { Activity, Building2, Calculator, History, LineChart, ScanFace } from 'lucide-react'
-import { Link, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 
@@ -13,11 +13,20 @@ import PartnerPage from './routes/partner'
 import ProgressPage from './routes/progress'
 import ScanPage from './routes/scan'
 
+function HairRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  params.set('mode', 'hair')
+  return <Navigate to={`/scan?${params.toString()}`} replace />
+}
+
 function Nav({ brand }: { brand: BrandConfig }) {
+  const location = useLocation()
+
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-ink-950/60 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <Link to="/" className="flex items-center gap-2">
+        <Link to={`/${location.search}`} className="flex items-center gap-2">
           <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-white/10 shadow-glow">
             {brand.logoUrl ? (
               <img
@@ -34,7 +43,7 @@ function Nav({ brand }: { brand: BrandConfig }) {
           </div>
           <div className="leading-tight">
             <div className="text-sm font-semibold tracking-tight text-white">{brand.name}</div>
-            <div className="text-xs text-white/60">Skin analysis • routine • progress</div>
+            <div className="text-xs text-white/60">Skin + hair analysis • routine • progress</div>
           </div>
         </Link>
 
@@ -61,10 +70,11 @@ function NavLink({
 }) {
   const location = useLocation()
   const active = location.pathname === to
+  const toWithSearch = `${to}${location.search}`
 
   return (
     <Link
-      to={to}
+      to={toWithSearch}
       className={
         "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition " +
         (active
@@ -111,6 +121,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/demo" element={<DemoPage />} />
         <Route path="/scan" element={<ScanPage />} />
+        <Route path="/hair" element={<HairRedirect />} />
         <Route path="/calculator" element={<CalculatorPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/progress" element={<ProgressPage />} />
@@ -126,7 +137,7 @@ export default function App() {
                 </div>
                 <div className="mt-6">
                   <Link
-                    to="/"
+                    to={`/${location.search}`}
                     className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900"
                   >
                     Back home

@@ -33,6 +33,10 @@ function formatDate(iso: string) {
   }
 }
 
+function isHairAnalysis(entry: StoredAnalysis): boolean {
+  return entry.response.metrics.some((m) => m.id === 'dandruff' || m.id.startsWith('scalp_'))
+}
+
 function SeverityChart({ entry }: { entry: StoredAnalysis }) {
   const data = useMemo(
     () =>
@@ -99,6 +103,8 @@ export default function HistoryPage() {
     void nonce
     return loadHistory()
   }, [nonce])
+
+  const selectedIsHair = selected ? isHairAnalysis(selected) : false
 
   const currentTurns = useMemo(() => {
     if (!selected) return []
@@ -173,7 +179,7 @@ export default function HistoryPage() {
       }
 
       const allowedProducts =
-        catalog.length > 0
+        catalog.length > 0 && !isHairAnalysis(entry)
           ? buildRecommendations({ analysis: entry.response, catalog, maxProducts: 6 }).products
           : []
 
@@ -294,17 +300,19 @@ export default function HistoryPage() {
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <div className="text-xs text-white/60">Skin type</div>
+                  <div className="text-xs text-white/60">{selectedIsHair ? 'Scalp type' : 'Skin type'}</div>
                   <div className="mt-2 text-base font-semibold text-white">
                     {selected.response.skin_type}
                   </div>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <div className="text-xs text-white/60">Fitzpatrick estimate</div>
-                  <div className="mt-2 text-base font-semibold text-white">
-                    {selected.response.estimated_fitzpatrick ?? '—'}
+                {!selectedIsHair ? (
+                  <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                    <div className="text-xs text-white/60">Fitzpatrick estimate</div>
+                    <div className="mt-2 text-base font-semibold text-white">
+                      {selected.response.estimated_fitzpatrick ?? '—'}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
 
               <div className="mt-4">
