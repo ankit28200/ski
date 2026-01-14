@@ -77,10 +77,6 @@ function initialsFromProductName(name: string): string {
   return `${first}${second}`.toUpperCase()
 }
 
-function cleanMetricLabel(label: string): string {
-  return label.split('(proxy)').join('').replaceAll('  ', ' ').trim()
-}
-
 function escapeSvgText(v: string): string {
   return v.replace(/[&<>"']/g, (ch) => {
     if (ch === '&') return '&amp;'
@@ -231,51 +227,6 @@ function Gauge({ value }: { value: number }) {
         <div className="text-xs text-white/60">overall</div>
       </div>
     </div>
-  )
-}
-
-function MetricBubble({
-  value,
-  label,
-  color,
-  active,
-  onClick,
-  className,
-}: {
-  value: string
-  label: string
-  color: string
-  active?: boolean
-  onClick?: () => void
-  className?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'group flex items-center gap-3 rounded-full border px-4 py-3 text-left backdrop-blur-md transition',
-        active
-          ? 'border-white/20 bg-white/12'
-          : 'border-white/12 bg-black/30 hover:border-white/18 hover:bg-black/35',
-        onClick ? 'cursor-pointer' : 'cursor-default',
-        className,
-      )}
-    >
-      <div
-        className="grid h-11 w-11 place-items-center rounded-full"
-        style={{
-          background: `conic-gradient(${color} 260deg, rgba(255,255,255,0.14) 0deg)`,
-        }}
-      >
-        <div className="grid h-9 w-9 place-items-center rounded-full bg-ink-950">
-          <div className="text-sm font-semibold text-white">{value}</div>
-        </div>
-      </div>
-      <div className="min-w-0">
-        <div className="text-xs font-semibold text-white/80">{label}</div>
-      </div>
-    </button>
   )
 }
 
@@ -1097,7 +1048,7 @@ export default function ScanPage() {
     const out: Record<string, string> = {}
     if (!result) return out
     for (const m of result.metrics) {
-      out[m.id] = cleanMetricLabel(m.label)
+      out[m.id] = m.label.replace(/\s*\(proxy\)\s*/i, '').trim()
     }
     return out
   }, [result])
@@ -1248,7 +1199,7 @@ export default function ScanPage() {
           meta[m.id] = {
             severity: m.severity,
             confidence: m.confidence,
-            label: cleanMetricLabel(m.label),
+            label: m.label.replace(/\s*\(proxy\)\s*/i, '').trim(),
           }
         }
 
@@ -2357,193 +2308,310 @@ export default function ScanPage() {
             )}
 
             {!loading && result && (
-              <div className="grid gap-6">
-                {(() => {
-                  const top = topConcernMetrics[0]
-                  const second = topConcernMetrics[1]
-                  const third = topConcernMetrics[2]
-
-                  const tabs: Array<{ id: string; label: string; metricId?: string }> = [
-                    { id: 'skin_type', label: 'Skin Type' },
-                    { id: 'wrinkles', label: 'Wrinkles', metricId: 'wrinkles' },
-                    { id: 'puffy_eyes', label: 'Puffy Eyes', metricId: 'puffy_eyes' },
-                  ]
-
-                  const activeTab = tabs.find((t) => t.id === overlayFocus) ?? tabs[0]
-                  const focusMetric =
-                    activeTab.metricId && result.metrics.find((m) => m.id === activeTab.metricId)
-                      ? result.metrics.find((m) => m.id === activeTab.metricId)
-                      : top
-
-                  return (
-                    <>
-                      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-black">
-                        <div className="relative">
-                          {selectedCapture ? (
-                            <>
-                              <img
-                                ref={resultImageRef}
-                                src={selectedCapture.url}
-                                onLoad={() => setResultImageTick((v) => v + 1)}
-                                className="h-auto w-full"
-                                alt="Selected frame"
-                              />
-                              <canvas
-                                ref={resultOverlayRef}
-                                className="pointer-events-none absolute inset-0 h-full w-full"
-                              />
-                            </>
-                          ) : (
-                            <div className="grid h-[420px] place-items-center text-sm text-white/60">
-                              No image selected.
-                            </div>
-                          )}
-
-                          <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/70 to-transparent" />
-                          <div className="absolute left-4 top-4 right-4 flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-xs font-semibold tracking-wide text-white/70">YOUR REPORT</div>
-                              <div className="mt-1 text-lg font-semibold text-white">{result.skin_type}</div>
-                              <div className="mt-1 text-xs text-white/60">
-                                Quality {(result.quality.score * 100).toFixed(0)}%
-                              </div>
-                            </div>
-                            <div className="rounded-full border border-white/12 bg-black/30 px-3 py-2 text-xs font-semibold text-white/80 backdrop-blur">
-                              Score {Math.round(result.overall_score)}
-                            </div>
-                          </div>
-
-                          <div className="absolute inset-x-0 bottom-24 px-4">
-                            <div className="flex flex-wrap gap-3">
-                              {top ? (
-                                <MetricBubble
-                                  value={String(Math.round(top.severity))}
-                                  label={cleanMetricLabel(top.label)}
-                                  color={`rgba(${primaryRgb},0.9)`}
-                                  active={overlayFocus === top.id}
-                                  onClick={() => setOverlayFocus(top.id)}
-                                />
-                              ) : null}
-                              {second ? (
-                                <MetricBubble
-                                  value={String(Math.round(second.severity))}
-                                  label={cleanMetricLabel(second.label)}
-                                  color={`rgba(${accentRgb},0.9)`}
-                                  active={overlayFocus === second.id}
-                                  onClick={() => setOverlayFocus(second.id)}
-                                />
-                              ) : null}
-                              {third ? (
-                                <MetricBubble
-                                  value={String(Math.round(third.severity))}
-                                  label={cleanMetricLabel(third.label)}
-                                  color={'rgba(34,197,94,0.9)'}
-                                  active={overlayFocus === third.id}
-                                  onClick={() => setOverlayFocus(third.id)}
-                                />
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="absolute inset-x-0 bottom-0">
-                            <div className="border-t border-white/10 bg-black/35 backdrop-blur">
-                              <div className="flex items-center gap-2 overflow-x-auto px-3 py-3">
-                                {tabs.map((t) => (
-                                  <button
-                                    key={t.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (t.metricId) setOverlayFocus(t.metricId)
-                                      else setOverlayFocus('top')
-                                    }}
-                                    className={cn(
-                                      'shrink-0 rounded-full border px-4 py-2 text-xs font-semibold transition',
-                                      (t.metricId ? overlayFocus === t.metricId : overlayFocus === 'top')
-                                        ? 'border-white/20 bg-white/10 text-white'
-                                        : 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white',
-                                    )}
-                                  >
-                                    {t.label}
-                                  </button>
-                                ))}
-
-                                <div className="ml-auto shrink-0">
-                                  <Button
-                                    variant="secondary"
-                                    className="px-4 py-2 text-xs"
-                                    onClick={() => {
-                                      const el = document.getElementById('shop-products')
-                                      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                                    }}
-                                  >
-                                    My Products
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 lg:col-span-1">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold tracking-wide text-white/70">
+                        YOUR DASHBOARD
                       </div>
-
-                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="text-sm font-semibold text-white">
-                              {focusMetric
-                                ? cleanMetricLabel(focusMetric.label)
-                                : 'Top concerns'}
-                            </div>
-                            <div className="mt-2 text-sm text-white/70">
-                              {focusMetric ? focusMetric.summary : 'Overview of the top concern areas.'}
-                            </div>
-                          </div>
-                          {focusMetric ? (
-                            <div className="rounded-2xl border border-white/12 bg-white/5 px-3 py-2 text-sm font-semibold text-white">
-                              {Math.round(focusMetric.severity)}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {focusMetric && focusMetric.tips.length > 0 ? (
-                          <div className="mt-4 grid gap-2">
-                            {focusMetric.tips.slice(0, 3).map((t, i) => (
-                              <div key={i} className="text-sm text-white/70">
-                                {t}
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
+                      <div className="mt-2 text-xl font-semibold text-white">
+                        {result.skin_type}
                       </div>
-                    </>
-                  )
-                })()}
-
-                <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                  <div className="text-sm font-semibold text-white">Suggested routine</div>
-                  <div className="mt-2 text-sm text-white/70">
-                    A simple starting point you can adjust based on tolerance.
+                      <div className="mt-1 text-sm text-white/70">
+                        Quality: {(result.quality.score * 100).toFixed(0)}%
+                      </div>
+                    </div>
+                    <Gauge value={result.overall_score} />
                   </div>
 
-                  {result.routine.length === 0 ? (
-                    <div className="mt-4 text-sm text-white/70">
-                      No routine generated.
+                  <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-white">Capture quality</div>
+                      <div className="text-xs text-white/60">
+                        {(result.quality.score * 100).toFixed(0)}%
+                      </div>
                     </div>
-                  ) : (
-                    <div className="mt-5 grid gap-3">
-                      {result.routine.map((r, idx) => (
-                        <div key={idx} className="rounded-3xl border border-white/10 bg-white/5 p-5">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="text-xs font-semibold tracking-wide text-white/70">{r.time}</div>
-                              <div className="mt-1 text-sm font-semibold text-white">{r.step}</div>
-                              <div className="mt-2 text-sm text-white/70">{r.why}</div>
-                            </div>
+
+                    <div className="mt-4 grid gap-3">
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-white/60">
+                          <span>Lighting</span>
+                          <span>{Math.round(result.quality.brightness * 100)}%</span>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-white/10">
+                          <div
+                            className="h-2 rounded-full"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, result.quality.brightness * 100))}%`,
+                              backgroundColor: 'rgba(var(--brand-primary-rgb),0.85)',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-white/60">
+                          <span>Sharpness</span>
+                          <span>{Math.round(result.quality.blur * 100)}%</span>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-white/10">
+                          <div
+                            className="h-2 rounded-full"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, result.quality.blur * 100))}%`,
+                              backgroundColor: 'rgba(var(--brand-accent-rgb),0.85)',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {mode === 'hair' ? null : (
+                        <div>
+                          <div className="flex items-center justify-between text-xs text-white/60">
+                            <span>Framing</span>
+                            <span>{Math.round(result.quality.face_coverage * 100)}%</span>
+                          </div>
+                          <div className="mt-2 h-2 rounded-full bg-white/10">
+                            <div
+                              className="h-2 rounded-full"
+                              style={{
+                                width: `${Math.max(0, Math.min(100, result.quality.face_coverage * 100))}%`,
+                                backgroundColor: 'rgba(34,197,94,0.85)',
+                              }}
+                            />
                           </div>
                         </div>
-                      ))}
+                      )}
+                    </div>
+
+                    {result.quality.warnings.length > 0 ? (
+                      <div className="mt-4 grid gap-2 text-xs text-white/60">
+                        {result.quality.warnings.slice(0, 3).map((w, i) => (
+                          <div key={i}>{w}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-4 text-xs text-white/60">Great capture quality.</div>
+                    )}
+                  </div>
+
+                  {mode === 'hair' ? null : (
+                    <div className="mt-6 grid gap-3">
+                      <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                        <div className="text-xs text-white/60">Fitzpatrick estimate</div>
+                        <div className="mt-2 text-base font-semibold text-white">
+                          {result.estimated_fitzpatrick ? `Type ${result.estimated_fitzpatrick}` : '—'}
+                        </div>
+                        <div className="mt-2 text-xs text-white/60">
+                          {result.estimated_fitzpatrick
+                            ? fitzpatrickMeaning(result.estimated_fitzpatrick)
+                            : 'Estimated from the photo; lighting can affect accuracy.'}
+                        </div>
+                      </div>
+                      <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                        <div className="text-xs text-white/60">Skin age estimate</div>
+                        <div className="mt-2 text-base font-semibold text-white">
+                          {result.skin_age !== null && result.skin_age !== undefined
+                            ? `${result.skin_age.toFixed(1)} yrs`
+                            : '—'}
+                          {result.skin_age_delta !== null && result.skin_age_delta !== undefined ? (
+                            <span className="ml-2 text-sm text-white/60">
+                              ({result.skin_age_delta >= 0 ? '+' : ''}
+                              {result.skin_age_delta.toFixed(1)})
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 text-xs text-white/60">
+                          {result.skin_age !== null && result.skin_age !== undefined
+                            ? 'Compared to your entered age; delta is driven by wrinkles, tone and redness.'
+                            : 'Enter your age in Step 2 to enable this estimate.'}
+                        </div>
+                      </div>
                     </div>
                   )}
+
+                  <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+                    <div className="text-sm font-semibold text-white">Notes</div>
+                    <div className="mt-2 grid gap-2 text-sm text-white/70">
+                      {result.notes.map((n, i) => (
+                        <div key={i}>{n}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => setStep(1)}>
+                      <ArrowLeft className="h-4 w-4" />
+                      Retake
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => navigate(`/progress${location.search}`)}
+                    >
+                      <LineChart className="h-4 w-4" />
+                      View progress
+                    </Button>
+                    <Button variant="ghost" onClick={resetAll}>
+                      <RefreshCcw className="h-4 w-4" />
+                      Start over
+                    </Button>
+                  </div>
                 </div>
+
+                <div className="grid gap-6 lg:col-span-2">
+                  {selectedCapture ? (
+                    mode === 'hair' ? (
+                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                        <div className="text-sm font-semibold text-white">Selected photo</div>
+                        <div className="mt-2 text-sm text-white/70">The API chose this frame for analysis.</div>
+
+                        <div className="mt-5 overflow-hidden rounded-[2rem] border border-white/10 bg-black">
+                          <img src={selectedCapture.url} className="h-auto w-full" alt="Selected frame" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-white">AI concern map</div>
+                            <div className="mt-2 text-sm text-white/70">
+                              Visual overlay of likely concern regions (non-medical). Tap a concern to focus.
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Chip
+                              label="Top concerns"
+                              active={overlayFocus === 'top'}
+                              onClick={() => setOverlayFocus('top')}
+                            />
+                            {topConcernMetrics.map((m) => (
+                              <Chip
+                                key={m.id}
+                                label={m.label.replace(/\s*\(proxy\)\s*/i, '').trim()}
+                                active={overlayFocus === m.id}
+                                onClick={() => setOverlayFocus(m.id)}
+                              />
+                            ))}
+
+                            <Button
+                              variant="secondary"
+                              className="px-3 py-2"
+                              onClick={downloadConcernMap}
+                              disabled={concernMapStatus !== 'ready'}
+                            >
+                              <Download className="h-4 w-4" />
+                              Download
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="mt-5 overflow-hidden rounded-[2rem] border border-white/10 bg-black">
+                          <div className="relative">
+                            <img
+                              ref={resultImageRef}
+                              src={selectedCapture.url}
+                              onLoad={() => setResultImageTick((v) => v + 1)}
+                              className="h-auto w-full"
+                              alt="Selected frame"
+                            />
+                            <canvas
+                              ref={resultOverlayRef}
+                              className="pointer-events-none absolute inset-0 h-full w-full"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-3 text-xs text-white/60">
+                          Overlay status: {concernMapStatus === 'ready' ? 'on' : concernMapStatus}
+                        </div>
+                      </div>
+                    )
+                  ) : null}
+
+                  <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                    <div className="text-sm font-semibold text-white">Severity breakdown</div>
+                    <div className="mt-3 h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={chartData}
+                          margin={{ left: 0, right: 12, top: 10, bottom: 10 }}
+                        >
+                          <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                          <XAxis
+                            dataKey="name"
+                            tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 11 }}
+                          />
+                          <YAxis
+                            tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 11 }}
+                            domain={[0, 100]}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'rgba(2,6,23,0.95)',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              borderRadius: 16,
+                            }}
+                            labelStyle={{ color: 'rgba(255,255,255,0.8)' }}
+                            itemStyle={{ color: 'white' }}
+                          />
+                          <Bar
+                            dataKey="severity"
+                            fill={`rgba(${primaryRgb},0.75)`}
+                            radius={[10, 10, 10, 10]}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {result.metrics.map((m) => (
+                      <MetricCard
+                        key={m.id}
+                        label={m.label}
+                        severity={m.severity}
+                        confidence={m.confidence}
+                        summary={m.summary}
+                        tips={m.tips}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                    <div className="text-sm font-semibold text-white">Suggested routine</div>
+                    <div className="mt-2 text-sm text-white/70">
+                      A simple starting point you can adjust based on tolerance.
+                    </div>
+
+                    {result.routine.length === 0 ? (
+                      <div className="mt-4 text-sm text-white/70">
+                        No routine generated.
+                      </div>
+                    ) : (
+                      <div className="mt-5 grid gap-3">
+                        {result.routine.map((r, idx) => (
+                          <div
+                            key={idx}
+                            className="rounded-3xl border border-white/10 bg-white/5 p-5"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <div className="text-xs font-semibold tracking-wide text-white/70">
+                                  {r.time}
+                                </div>
+                                <div className="mt-1 text-sm font-semibold text-white">
+                                  {r.step}
+                                </div>
+                                <div className="mt-2 text-sm text-white/70">{r.why}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   {mode === 'hair' ? null : (
                     <div className="grid gap-6 lg:grid-cols-2">
@@ -2592,7 +2660,7 @@ export default function ScanPage() {
                       </div>
 
                       <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                        <div id="shop-products" className="text-sm font-semibold text-white">Shop products</div>
+                        <div className="text-sm font-semibold text-white">Shop products</div>
                         <div className="mt-2 text-sm text-white/70">
                           Suggested matches from {brand.name}.
                         </div>
@@ -2758,7 +2826,7 @@ export default function ScanPage() {
                     </div>
                   </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                  <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
                     <div className="text-sm font-semibold text-white">How this works</div>
                     <div className="mt-2 grid gap-3 text-sm text-white/70">
                       {mode === 'hair' ? (
@@ -2794,7 +2862,8 @@ export default function ScanPage() {
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
             {!loading && !error && !result && (
               <div className="rounded-[2rem] border border-white/10 bg-white/5 p-8">
