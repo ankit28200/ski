@@ -77,6 +77,10 @@ function initialsFromProductName(name: string): string {
   return `${first}${second}`.toUpperCase()
 }
 
+function cleanMetricLabel(label: string): string {
+  return label.split('(proxy)').join('').replaceAll('  ', ' ').trim()
+}
+
 function escapeSvgText(v: string): string {
   return v.replace(/[&<>"']/g, (ch) => {
     if (ch === '&') return '&amp;'
@@ -1093,7 +1097,7 @@ export default function ScanPage() {
     const out: Record<string, string> = {}
     if (!result) return out
     for (const m of result.metrics) {
-      out[m.id] = m.label.replace(/\s*\(proxy\)\s*/i, '').trim()
+      out[m.id] = cleanMetricLabel(m.label)
     }
     return out
   }, [result])
@@ -1244,7 +1248,7 @@ export default function ScanPage() {
           meta[m.id] = {
             severity: m.severity,
             confidence: m.confidence,
-            label: m.label.replace(/\s*\(proxy\)\s*/i, '').trim(),
+            label: cleanMetricLabel(m.label),
           }
         }
 
@@ -2414,7 +2418,7 @@ export default function ScanPage() {
                               {top ? (
                                 <MetricBubble
                                   value={String(Math.round(top.severity))}
-                                  label={top.label.replace(/\s*\(proxy\)\s*/i, '').trim()}
+                                  label={cleanMetricLabel(top.label)}
                                   color={`rgba(${primaryRgb},0.9)`}
                                   active={overlayFocus === top.id}
                                   onClick={() => setOverlayFocus(top.id)}
@@ -2423,7 +2427,7 @@ export default function ScanPage() {
                               {second ? (
                                 <MetricBubble
                                   value={String(Math.round(second.severity))}
-                                  label={second.label.replace(/\s*\(proxy\)\s*/i, '').trim()}
+                                  label={cleanMetricLabel(second.label)}
                                   color={`rgba(${accentRgb},0.9)`}
                                   active={overlayFocus === second.id}
                                   onClick={() => setOverlayFocus(second.id)}
@@ -2432,7 +2436,7 @@ export default function ScanPage() {
                               {third ? (
                                 <MetricBubble
                                   value={String(Math.round(third.severity))}
-                                  label={third.label.replace(/\s*\(proxy\)\s*/i, '').trim()}
+                                  label={cleanMetricLabel(third.label)}
                                   color={'rgba(34,197,94,0.9)'}
                                   active={overlayFocus === third.id}
                                   onClick={() => setOverlayFocus(third.id)}
@@ -2486,7 +2490,7 @@ export default function ScanPage() {
                           <div>
                             <div className="text-sm font-semibold text-white">
                               {focusMetric
-                                ? focusMetric.label.replace(/\s*\(proxy\)\s*/i, '').trim()
+                                ? cleanMetricLabel(focusMetric.label)
                                 : 'Top concerns'}
                             </div>
                             <div className="mt-2 text-sm text-white/70">
