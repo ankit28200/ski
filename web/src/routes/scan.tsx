@@ -2518,39 +2518,32 @@ export default function ScanPage() {
                   )
                 })()}
 
-                  <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-                    <div className="text-sm font-semibold text-white">Suggested routine</div>
-                    <div className="mt-2 text-sm text-white/70">
-                      A simple starting point you can adjust based on tolerance.
-                    </div>
+                <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+                  <div className="text-sm font-semibold text-white">Suggested routine</div>
+                  <div className="mt-2 text-sm text-white/70">
+                    A simple starting point you can adjust based on tolerance.
+                  </div>
 
-                    {result.routine.length === 0 ? (
-                      <div className="mt-4 text-sm text-white/70">
-                        No routine generated.
-                      </div>
-                    ) : (
-                      <div className="mt-5 grid gap-3">
-                        {result.routine.map((r, idx) => (
-                          <div
-                            key={idx}
-                            className="rounded-3xl border border-white/10 bg-white/5 p-5"
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div>
-                                <div className="text-xs font-semibold tracking-wide text-white/70">
-                                  {r.time}
-                                </div>
-                                <div className="mt-1 text-sm font-semibold text-white">
-                                  {r.step}
-                                </div>
-                                <div className="mt-2 text-sm text-white/70">{r.why}</div>
-                              </div>
+                  {result.routine.length === 0 ? (
+                    <div className="mt-4 text-sm text-white/70">
+                      No routine generated.
+                    </div>
+                  ) : (
+                    <div className="mt-5 grid gap-3">
+                      {result.routine.map((r, idx) => (
+                        <div key={idx} className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="text-xs font-semibold tracking-wide text-white/70">{r.time}</div>
+                              <div className="mt-1 text-sm font-semibold text-white">{r.step}</div>
+                              <div className="mt-2 text-sm text-white/70">{r.why}</div>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                   {mode === 'hair' ? null : (
                     <div className="grid gap-6 lg:grid-cols-2">
@@ -2765,7 +2758,7 @@ export default function ScanPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+              <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
                     <div className="text-sm font-semibold text-white">How this works</div>
                     <div className="mt-2 grid gap-3 text-sm text-white/70">
                       {mode === 'hair' ? (
@@ -2801,8 +2794,7 @@ export default function ScanPage() {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {!loading && !error && !result && (
               <div className="rounded-[2rem] border border-white/10 bg-white/5 p-8">
