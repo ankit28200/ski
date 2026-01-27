@@ -109,6 +109,105 @@ export default function App() {
     applyBrandConfig(brand)
   }, [brand])
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const t = window.setTimeout(() => {
+      document.dispatchEvent(new Event('prerender-ready'))
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    const origin = 'https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app'
+    const baseTitle = brand.name && brand.name.trim().length > 0 ? brand.name.trim() : 'SkinSense AI'
+    const path = location.pathname
+    const params = new URLSearchParams(location.search)
+
+    const metaDesc = document.querySelector('meta[name="description"]') as HTMLMetaElement | null
+    const metaRobots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null
+    const canonicalLink = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
+
+    const ogTitle = document.querySelector('meta[property="og:title"]') as HTMLMetaElement | null
+    const ogDesc = document.querySelector('meta[property="og:description"]') as HTMLMetaElement | null
+    const ogUrl = document.querySelector('meta[property="og:url"]') as HTMLMetaElement | null
+
+    const twTitle = document.querySelector('meta[name="twitter:title"]') as HTMLMetaElement | null
+    const twDesc = document.querySelector('meta[name="twitter:description"]') as HTMLMetaElement | null
+
+    const descLanding =
+      'Free online AI skin analysis. Upload a selfie, get skin insights, a personalized routine, and product matches.'
+    const descScan =
+      'Start a free AI skin scan. Upload a selfie or use your camera, answer a few questions, and get your routine and product matches.'
+    const descHair =
+      'Start a free AI hair + scalp scan. Upload photos and get hair/scalp insights and a suggested routine.'
+
+    let title = baseTitle
+    let desc = descLanding
+    let canonicalPath = path
+
+    if (path === '/scan') {
+      const mode = params.get('mode')
+      if (mode === 'hair') {
+        title = `${baseTitle} — AI Hair Scan`
+        desc = descHair
+        canonicalPath = '/hair'
+      } else {
+        title = `${baseTitle} — AI Skin Scan`
+        desc = descScan
+        canonicalPath = '/scan'
+      }
+    } else if (path === '/hair') {
+      title = `${baseTitle} — AI Hair Scan`
+      desc = descHair
+    } else if (path === '/calculator') {
+      title = `${baseTitle} — ROI Calculator`
+      desc = 'Estimate revenue lift and acquisition savings from adding AI skin analysis to your funnel.'
+    } else if (path === '/partner') {
+      title = `${baseTitle} — Partner Embed`
+      desc = 'Generate an embed snippet to add SkinSense AI to your website.'
+    } else if (path === '/progress') {
+      title = `${baseTitle} — Progress`
+      desc = 'Track your skin progress over time and compare scans.'
+    } else if (path === '/history') {
+      title = `${baseTitle} — History`
+      desc = 'Review your previous AI skin scans and results.'
+    } else if (path === '/') {
+      title = `${baseTitle} — Online Skin Analysis`
+      desc = descLanding
+    }
+
+    const canonicalUrl = `${origin}${canonicalPath}`
+
+    const isEmbed = params.get('embed') === '1'
+    const hasBrandParams =
+      params.has('brand') ||
+      params.has('catalog') ||
+      params.has('logo') ||
+      params.has('primary') ||
+      params.has('accent') ||
+      params.has('origin')
+    const shouldNoIndex = isEmbed || hasBrandParams
+
+    document.title = title
+    if (metaDesc) metaDesc.content = desc
+
+    if (canonicalLink) canonicalLink.href = canonicalUrl
+    if (metaRobots) {
+      metaRobots.content = shouldNoIndex
+        ? 'noindex,nofollow'
+        : 'index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1'
+    }
+
+    if (ogTitle) ogTitle.content = title
+    if (ogDesc) ogDesc.content = desc
+    if (ogUrl) ogUrl.content = canonicalUrl
+
+    if (twTitle) twTitle.content = title
+    if (twDesc) twDesc.content = desc
+  }, [brand.name, location.pathname, location.search])
+
   const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   const isDemo = location.pathname === '/demo'
   const hideChrome = isEmbed || isDemo
