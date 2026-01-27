@@ -104,6 +104,7 @@ function Footer() {
 export default function App() {
   const location = useLocation()
   const brand = useMemo(() => readBrandConfig(location.search), [location.search])
+  const gaMeasurementId = import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined
 
   useEffect(() => {
     applyBrandConfig(brand)
@@ -207,6 +208,20 @@ export default function App() {
     if (twTitle) twTitle.content = title
     if (twDesc) twDesc.content = desc
   }, [brand.name, location.pathname, location.search])
+
+  useEffect(() => {
+    if (!gaMeasurementId) return
+    if (typeof window === 'undefined') return
+    const gtag = (window as any).gtag as undefined | ((...args: any[]) => void)
+    if (typeof gtag !== 'function') return
+
+    const pagePath = `${location.pathname}${location.search}`
+    gtag('config', gaMeasurementId, {
+      page_path: pagePath,
+      page_location: window.location.href,
+      page_title: document.title,
+    })
+  }, [gaMeasurementId, location.pathname, location.search])
 
   const isEmbed = new URLSearchParams(location.search).get('embed') === '1'
   const isDemo = location.pathname === '/demo'
