@@ -1,7 +1,15 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
-const ORIGIN = 'https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app'
+const ORIGIN = (() => {
+  const fromEnv = process.env.SITE_URL || process.env.VITE_SITE_URL
+  if (fromEnv && fromEnv.trim().length > 0) return fromEnv.replace(/\/$/, '')
+
+  const vercelUrl = process.env.VERCEL_URL
+  if (vercelUrl && vercelUrl.trim().length > 0) return `https://${vercelUrl.replace(/\/$/, '')}`
+
+  return 'http://localhost:5173'
+})()
 const BASE_TITLE = 'SkinSense AI'
 
 const descLanding =
@@ -38,6 +46,7 @@ function replaceMeta(html, pattern, replacement) {
 
 function applySeo(html, { title, desc, canonicalPath }) {
   const canonicalUrl = `${ORIGIN}${canonicalPath}`
+  const ogImageUrl = `${ORIGIN}/og.svg`
 
   let out = html
 
@@ -71,6 +80,12 @@ function applySeo(html, { title, desc, canonicalPath }) {
 
   out = replaceMeta(
     out,
+    /<meta\s+property="og:image"\s+content="[^"]*"\s*\/?>(?:\s*)/i,
+    `<meta property="og:image" content="${ogImageUrl}">`,
+  )
+
+  out = replaceMeta(
+    out,
     /<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?>(?:\s*)/i,
     `<meta name="twitter:title" content="${title}">`,
   )
@@ -79,6 +94,14 @@ function applySeo(html, { title, desc, canonicalPath }) {
     /<meta\s+name="twitter:description"\s+content="[^"]*"\s*\/?>(?:\s*)/i,
     `<meta name="twitter:description" content="${desc}">`,
   )
+
+  out = replaceMeta(
+    out,
+    /<meta\s+name="twitter:image"\s+content="[^"]*"\s*\/?>(?:\s*)/i,
+    `<meta name="twitter:image" content="${ogImageUrl}">`,
+  )
+
+  out = out.replace(/"url"\s*:\s*"[^"]*"/i, `"url": "${ORIGIN}/"`)
 
   return out
 }
@@ -105,6 +128,16 @@ async function main() {
     canonicalPath: '/',
   })
   await fs.writeFile(baseHtmlPath, rootHtml, 'utf8')
+
+  const routesForSitemap = ['/', '/scan', '/hair', '/calculator', '/partner']
+  const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${routesForSitemap
+    .map((p) => `  <url>\n    <loc>${ORIGIN}${p}</loc>\n  </url>`)
+    .join('\n')}\n</urlset>\n`
+
+  await fs.writeFile(path.join(distDir, 'sitemap.xml'), sitemapXml, 'utf8')
+
+  const robotsTxt = `User-agent: *\nAllow: /\n\nSitemap: ${ORIGIN}/sitemap.xml\n`
+  await fs.writeFile(path.join(distDir, 'robots.txt'), robotsTxt, 'utf8')
 }
 
 main().catch((e) => {

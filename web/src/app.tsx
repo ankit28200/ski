@@ -121,7 +121,8 @@ export default function App() {
   useEffect(() => {
     if (typeof document === 'undefined') return
 
-    const origin = 'https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app'
+    const originFromEnv = import.meta.env.VITE_SITE_URL as string | undefined
+    const origin = originFromEnv && originFromEnv.trim().length > 0 ? originFromEnv.replace(/\/$/, '') : window.location.origin
     const baseTitle = brand.name && brand.name.trim().length > 0 ? brand.name.trim() : 'SkinSense AI'
     const path = location.pathname
     const params = new URLSearchParams(location.search)

@@ -1,37 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/</loc>
+    <loc>http://localhost:5173/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/scan</loc>
+    <loc>http://localhost:5173/scan</loc>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/hair</loc>
+    <loc>http://localhost:5173/hair</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/calculator</loc>
+    <loc>http://localhost:5173/calculator</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/history</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.4</priority>
-  </url>
-  <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/progress</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.4</priority>
-  </url>
-  <url>
-    <loc>https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/partner</loc>
+    <loc>http://localhost:5173/partner</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

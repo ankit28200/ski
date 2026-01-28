@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://ski-37sfde7ch-ankits-projects-658ddc57.vercel.app/sitemap.xml
+Sitemap: http://localhost:5173/sitemap.xml
